@@ -3,10 +3,10 @@
     "modid": "vsinstruments",
     "name": "Instruments",
     "authors": [
-        "Quacksol"
+        "Quacksol", "_ex0_"
     ],
     "description": "Play music together on a variety of instruments!",
-    "version": "1.2.7",
+    "version": "1.2.7-midifork",
     "dependencies": {
         "game": "1.19.3"
     }

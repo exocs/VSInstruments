@@ -15,8 +15,9 @@ namespace instruments
     {
         lockedTone = 0, // Player y angle floored to nearest tone
         lockedSemiTone, // Player y angle floored to nearest semi-tone
-        fluid,      // Player y angle directly correlates to pitch
-        abc         // Playing an abc file
+        fluid,          // Player y angle directly correlates to pitch
+        abc,            // Playing an abc file
+        midi,            // Playing midi
     }
 
     public struct NoteFrequency
@@ -189,6 +190,8 @@ namespace instruments
             MusicBlockManager.GetInstance().Reset(); // I think there's a manager for both Server and Client, so reset it I guess
             Definitions.GetInstance().Reset();
 
+            
+
             clientApi.RegisterCommand("instruments", "instrument playback commands", "[enable|disable]", ParseClientCommand);
             clientSideEnable = true;
             clientSideReady = true;
@@ -328,7 +331,7 @@ namespace instruments
                 if (sm.sourceID == player.ClientId)
                 {
                     thisClientPlaying = false;
-                    Definitions.GetInstance().SetIsPlaying(false);
+                    Definitions.GetInstance().SetPlayingMode(PlayingMode.none);
                     //player?.Entity?.StopAnimation(Definitions.GetInstance().GetAnimation(sm.instrument));
                 }
                 if (otherPlayerSync)

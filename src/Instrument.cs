@@ -7,7 +7,8 @@ using Vintagestory.API.Common;
 using Vintagestory.API.Common.Entities;
 using Vintagestory.API.Config;  // Lang
 using Vintagestory.API.MathTools; // vec3D
-using Vintagestory.API.Util;  // ToolModes
+using Vintagestory.API.Util;
+
 
 namespace instruments
 {
@@ -52,11 +53,13 @@ namespace instruments
 
             toolModes = ObjectCacheUtil.GetOrCreate(api, "instrumentToolModes", () =>
             {
-                SkillItem[] modes = new SkillItem[4];
+                int numPlayModes = Enum.GetValues<PlayMode>().Length;
+                SkillItem[] modes = new SkillItem[numPlayModes];
                 modes[(int)PlayMode.abc] = new SkillItem() { Code = new AssetLocation(PlayMode.abc.ToString()), Name = Lang.Get("ABC Mode") };
                 modes[(int)PlayMode.fluid] = new SkillItem() { Code = new AssetLocation(PlayMode.fluid.ToString()), Name = Lang.Get("Fluid Play") };
                 modes[(int)PlayMode.lockedSemiTone] = new SkillItem() { Code = new AssetLocation(PlayMode.lockedSemiTone.ToString()), Name = Lang.Get("Locked Play: Semi Tone") };
                 modes[(int)PlayMode.lockedTone] = new SkillItem() { Code = new AssetLocation(PlayMode.lockedTone.ToString()), Name = Lang.Get("Locked Play: Tone") };
+                modes[(int)PlayMode.midi] = new SkillItem() { Code = new AssetLocation(PlayMode.midi.ToString()), Name = Lang.Get("MIDI Play") };
 
                 if (capi != null)
                 {
@@ -68,6 +71,8 @@ namespace instruments
                     modes[(int)PlayMode.lockedSemiTone].TexturePremultipliedAlpha = false;
                     modes[(int)PlayMode.lockedTone].WithIcon(capi, capi.Gui.LoadSvgWithPadding(new AssetLocation("instruments", "textures/icons/1.svg"), 48, 48, 5, ColorUtil.WhiteArgb));
                     modes[(int)PlayMode.lockedTone].TexturePremultipliedAlpha = false;
+                    modes[(int)PlayMode.midi].WithIcon(capi, capi.Gui.LoadSvgWithPadding(new AssetLocation("instruments", "textures/icons/midi.svg"), 48, 48, 5, ColorUtil.WhiteArgb));
+                    modes[(int)PlayMode.midi].TexturePremultipliedAlpha = false;
                 }
                 return modes;
             }
@@ -128,7 +133,45 @@ namespace instruments
                     return;
                 }
 
-                if (GetPlayMode(slot) != PlayMode.abc)
+                PlayMode playMode = GetPlayMode(slot);
+                switch (playMode)
+                {
+                    case PlayMode.abc:
+                        startAbc();
+                        break;
+
+                    case PlayMode.midi:
+                        startMidi();
+                        break;
+
+                    default:
+                        startDefault();
+                        break;
+                }
+
+                void startAbc()
+                {
+                    if (Definitions.GetInstance().IsPlaying(PlayingMode.abc))
+                    {
+                        ABCSendStop();
+                    }
+                    else
+                    {
+                        ABCSongSelect();
+                    }
+                }
+                void startMidi()
+                {
+                    if (Definitions.GetInstance().IsPlaying(PlayingMode.midi))
+                    {
+                        MidiStopListen();
+                    }
+                    else
+                    {
+                        MidiDeviceSelect();
+                    }
+                }
+                void startDefault()
                 {
                     Vec3d pos = new Vec3d(byEntity.Pos.X, byEntity.Pos.Y, byEntity.Pos.Z);
                     NoteStart newNote = new NoteStart();
@@ -137,17 +180,6 @@ namespace instruments
                     newNote.instrument = instrument;
                     IClientNetworkChannel ch = capi.Network.GetChannel("noteTest");
                     ch.SendPacket(newNote);
-                }
-                else
-                {
-                    if (Definitions.GetInstance().IsPlaying())
-                    {
-                        ABCSendStop();
-                    }
-                    else
-                    {
-                        ABCSongSelect();
-                    }
                 }
             }
             else
@@ -164,8 +196,23 @@ namespace instruments
             if (isClient)
             {
                 Update(slot, byEntity);
+                
                 // Additionally, update the sound packet
-                if (GetPlayMode(slot) != PlayMode.abc)
+                PlayMode playMode = GetPlayMode(slot);
+                switch (playMode)
+                {
+                    case PlayMode.abc:
+                        break;
+
+                    case PlayMode.midi:
+                        break;
+
+                    default:
+                        stepDefault();
+                        break;
+                }
+
+                void stepDefault()
                 {
                     Vec3d pos = new Vec3d(byEntity.Pos.X, byEntity.Pos.Y, byEntity.Pos.Z);
                     NoteUpdate newNote = new NoteUpdate();
@@ -185,7 +232,22 @@ namespace instruments
 
             if (isClient)
             {
-                if (GetPlayMode(slot) != PlayMode.abc)
+                // Additionally, update the sound packet
+                PlayMode playMode = GetPlayMode(slot);
+                switch (playMode)
+                {
+                    case PlayMode.abc:
+                        break;
+
+                    case PlayMode.midi:
+                        break;
+
+                    default:
+                        stopDefault();
+                        break;
+                }
+
+                void stopDefault()
                 {
                     NoteStop newNote = new NoteStop();
                     IClientNetworkChannel ch = capi.Network.GetChannel("noteTest");
@@ -234,7 +296,7 @@ namespace instruments
             }
             return 1;
         }
- 
+
         private void Update(ItemSlot slot, EntityAgent byEntity)
         {
 
@@ -257,6 +319,8 @@ namespace instruments
                     break;
                 case PlayMode.abc:
                     // No logic for this mode; all handled by the server.
+                    break;
+                case PlayMode.midi:
                     break;
                 default:
                     break;
@@ -361,8 +425,14 @@ namespace instruments
             //guiDialog?.TryClose();
             if (Definitions.GetInstance().IsPlaying())
             {
-                Definitions.GetInstance().SetIsPlaying(false);
-                ABCSendStop();
+                if (Definitions.GetInstance().IsPlaying(PlayingMode.abc))
+                {
+                    ABCSendStop();
+                }
+
+                // TODO: midi
+
+                Definitions.GetInstance().SetPlayingMode(PlayingMode.none);
             }
         }
         private void ABCSendStart(string fileData, bool isServerOwned)
@@ -374,7 +444,7 @@ namespace instruments
             newABC.isServerFile = isServerOwned;
             IClientNetworkChannel ch = capi.Network.GetChannel("abc");
             ch.SendPacket(newABC);
-            Definitions.GetInstance().SetIsPlaying(true);
+            Definitions.GetInstance().SetPlayingMode(PlayingMode.abc);
         }
         private void ABCSendStop()
         {
@@ -382,7 +452,6 @@ namespace instruments
             IClientNetworkChannel ch = capi.Network.GetChannel("abc");
             ch.SendPacket(newABC);
         }
-
         private void ABCSongSelect()
         {
             // Load abc folder
@@ -391,6 +460,48 @@ namespace instruments
                 Action<string> sb = SetBand;
                 SongSelectGUI songGui = new SongSelectGUI(capi, PlaySong, Definitions.GetInstance().GetSongList(), sb, Definitions.GetInstance().GetBandName());
                 songGui.TryOpen();
+            }
+        }
+
+        private void MidiStartListen(ICoreClientAPI capi, string midiDeviceName) 
+        {
+            if (MidiDevice.Activate(midiDeviceName))
+            {
+                // TODO: Make sure this event is called from the main thread!
+                MidiDevice.onNoteOn += (channel, pitch, velocity, time) =>
+                {
+                    // TODO: Resolve the duplicities and add support for more notes!
+                    if (MidiDevice.PitchToNoteFrequency(pitch, out NoteFrequency noteFrequency))
+                    {
+                        EntityPlayer playerEntity = capi.World.Player.Entity;
+                        Vec3d pos = new Vec3d(playerEntity.Pos.X, playerEntity.Pos.Y, playerEntity.Pos.Z);
+                        NoteStart newNote = new NoteStart();
+                        newNote.pitch = noteFrequency.pitch;
+                        newNote.positon = pos;
+                        newNote.instrument = instrument;
+                        IClientNetworkChannel ch = capi.Network.GetChannel("noteTest");
+                        ch.SendPacket(newNote);
+                    }
+                };
+            }
+        }
+        
+        private void MidiStopListen() 
+        {
+            MidiDevice.Deactivate();
+        }
+
+        private void MidiDeviceSelect() 
+        {
+            if (Definitions.GetInstance().UpdateMidiDeviceList(capi))
+            {
+                MidiDeviceSelectGUI deviceGui = new MidiDeviceSelectGUI(
+                    capi,
+                    (capi, midiDeviceName) => true, // in case validation is needed, uneccessary for now
+                    MidiStartListen,
+                    Definitions.GetInstance().GetMidiDeviceList()
+                    );
+                deviceGui.TryOpen();
             }
         }
 
@@ -519,6 +630,13 @@ namespace instruments
         }
     }
 
+    public enum PlayingMode
+    {
+        none = 0,
+        abc,
+        midi
+    }
+
     public class Definitions
     {
         private string bandName = "";
@@ -529,8 +647,9 @@ namespace instruments
         private const int bufferSize = 32;
         private List<string> abcFiles = new List<string>();
         private List<string> serverAbcFiles = new List<string>();
+        private List<string> midiDevices = new List<string>();
         private bool messageDone = false;
-        private bool abcPlaying = false;
+        private PlayingMode playingMode = PlayingMode.none; 
 
         string abcBaseDirectory = Directory.GetCurrentDirectory() + Path.DirectorySeparatorChar + "abc";
 
@@ -582,6 +701,7 @@ namespace instruments
             animMap.Add(InstrumentType.mic, "holdinglanternrighthand");
             animMap.Add(InstrumentType.drum, "holdbothhandslarge");
         }
+
         public static Definitions GetInstance()
         {
             if (_instance != null)
@@ -652,6 +772,7 @@ namespace instruments
                 return true;
             }
         }
+
         public void AddToServerSongList(string songFileName)
         {
             serverAbcFiles.Add(songFileName);
@@ -660,11 +781,35 @@ namespace instruments
         {
             return abcBaseDirectory;
         }
-        public void SetIsPlaying(bool toggle)
+
+        public bool UpdateMidiDeviceList(ICoreClientAPI capi)
         {
-            abcPlaying = toggle;
+            midiDevices.Clear();
+            MidiDevice.Enumerate(midiDevices);
+            return midiDevices.Count > 0;
         }
-        public bool IsPlaying() { return abcPlaying; }
+        public List<string> GetMidiDeviceList()
+        {
+            return midiDevices;
+        }
+
+
+
+        public void SetPlayingMode(PlayingMode playingMode)
+        {
+            this.playingMode = playingMode;
+        }
+
+        public bool IsPlaying() //IsPlayingAny()
+        {
+            return playingMode != PlayingMode.none;
+        }
+
+        public bool IsPlaying(PlayingMode mode)
+        {
+            return playingMode == mode;
+        }
+
         public void Reset()
         {
             abcFiles.Clear();

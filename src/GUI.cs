@@ -369,4 +369,145 @@ namespace instruments
             return TryClose();
         }
     }
+    public class MidiDeviceSelectGUI : GuiDialog
+    {
+        public delegate bool SelectMidiDevice(ICoreClientAPI capi, string midiDeviceName);
+        public delegate void StartMidiDeviceListen(ICoreClientAPI capi, string midiDeviceName);
+
+        public override string ToggleKeyCombinationCode => null;
+
+        SelectMidiDevice selectMidiDevice;
+        StartMidiDeviceListen startMidiDeviceListen;
+
+        int listHeight = 500;
+        int listWidth = 700;
+
+        private string filter = "";
+
+        private List<IFlatListItem> allStackListItems = new List<IFlatListItem>();
+        private List<IFlatListItem> shownStackListItems = new List<IFlatListItem>();
+
+        public MidiDeviceSelectGUI(
+            ICoreClientAPI capi, 
+            SelectMidiDevice selectMidiDeviceCallback,
+            StartMidiDeviceListen startMidiDeviceListenCallback,
+            List<string> midiDevices) 
+            : base(capi)
+        {
+            SetupDialog(midiDevices);
+            this.selectMidiDevice = selectMidiDeviceCallback;
+            this.startMidiDeviceListen = startMidiDeviceListenCallback;
+        }
+
+        public override void OnGuiOpened()
+        {
+            FilterMidiDevices();
+            SingleComposer.GetTextInput("search").SetValue("");
+            base.OnGuiOpened();
+        }
+
+        private void SetupDialog(List<string> midiDevices)
+        {
+            // https://github.com/anegostudios/vsessentialsmod/blob/master/Gui/GuiDialogHandbook.cs
+
+            ElementBounds searchFieldBounds = ElementBounds.Fixed(GuiStyle.ElementToDialogPadding - 2, 48, 300, 32);    // little bar at the top
+            ElementBounds stackListBounds = ElementBounds.Fixed(0, 0, listWidth, listHeight).FixedUnder(searchFieldBounds, 32);
+            ElementBounds insetBounds = stackListBounds.FlatCopy().FixedGrow(6).WithFixedOffset(-3, -3);                // Not sure lol
+            ElementBounds clipBounds = stackListBounds.ForkBoundingParent();                                            // not sure
+            ElementBounds scrollbarBounds = stackListBounds.CopyOffsetedSibling(3 + stackListBounds.fixedWidth + 7).WithFixedWidth(20);
+
+            ElementBounds searchTextBounds = ElementBounds.Fixed(GuiStyle.ElementToDialogPadding - 2, 24, 256, 32); // No idea why the y has to be different here, too afraid to ask
+            ElementBounds bandBoxBounds = ElementBounds.Fixed(GuiStyle.ElementToDialogPadding + 348, 68, 128, 32);
+            ElementBounds bandStringNewBounds = ElementBounds.Fixed(GuiStyle.ElementToDialogPadding + 348, 45, 128, 32);
+            ElementBounds bandStringBounds = ElementBounds.Fixed(GuiStyle.ElementToDialogPadding + 540, 68, 128, 128);
+
+            // Background boundaries. Again, just make it fit it's child elements, then add the text as a child element
+            ElementBounds bgBounds = ElementBounds.Fill.WithFixedPadding(GuiStyle.ElementToDialogPadding);
+            bgBounds.BothSizing = ElementSizing.FitToChildren;
+            bgBounds.WithChildren(insetBounds, stackListBounds, scrollbarBounds);
+
+            ElementBounds dialogBounds = ElementStdBounds.AutosizedMainDialog.WithAlignment(EnumDialogArea.CenterMiddle);
+
+            foreach (string device in midiDevices)
+            {
+                GuiHandbookTextPage page = new GuiHandbookTextPage();
+                page.Title = device;
+                allStackListItems.Add(page);
+            }
+
+            // Lastly, create the dialog
+            SingleComposer = capi.Gui.CreateCompo("SelectMidiDeviceDialog", dialogBounds)
+                .AddShadedDialogBG(bgBounds)
+                .AddDialogTitleBar("Select Midi Device", Close)
+                .BeginChildElements(bgBounds)
+                .AddTextInput(searchFieldBounds, (string newText) =>
+                {
+                    filter = newText;
+                    FilterMidiDevices();
+                },
+                CairoFont.WhiteSmallishText(), "search")
+                .AddStaticText("Device Filter:", CairoFont.WhiteDetailText(), EnumTextOrientation.Left, searchTextBounds)
+                .BeginClip(clipBounds)
+                    .AddInset(insetBounds, 3)
+                    .AddFlatList(stackListBounds, OnButtonPressed, shownStackListItems, "stacklist")
+                //.AddInteractiveElement(new GuiElementHandbookList(capi, stackListBounds, (int index) => {ButtonPressed(index);}, shownStackListItems), "stacklist")
+
+                .EndClip()
+                .AddVerticalScrollbar((float value) =>
+                {
+                    GuiElementFlatList stacklist = SingleComposer.GetFlatList("stacklist");
+                    stacklist.insideBounds.fixedY = 3 - value;
+                    stacklist.insideBounds.CalcWorldBounds();
+                }, scrollbarBounds, "scrollbar")
+                .EndChildElements()
+            ;
+            SingleComposer.Compose();
+        }
+
+        private void FilterMidiDevices()
+        {
+            shownStackListItems.Clear();
+            foreach (GuiHandbookTextPage device in allStackListItems)
+            {
+                if (!string.IsNullOrEmpty(filter))
+                {
+                    string lowerCase = device.Title.ToLower();
+                    if (!lowerCase.Contains(filter.ToLower()))
+                        continue;
+                }
+                shownStackListItems.Add(device);
+            }
+            GuiElementFlatList stacklist = SingleComposer.GetFlatList("stacklist");
+            stacklist.CalcTotalHeight();
+            OnNewScrollbarValue();
+        }
+
+        private void OnNewScrollbarValue()
+        {
+            // Max val of value will depend on how many songs are in the folder
+            GuiElementScrollbar scrollbar = SingleComposer.GetScrollbar("scrollbar");
+            GuiElementFlatList stacklist = SingleComposer.GetFlatList("stacklist");
+            scrollbar.SetHeights(
+                (float)listHeight,
+                (float)stacklist.insideBounds.fixedHeight
+                );
+        }
+
+        private void OnButtonPressed(int index)
+        {
+            GuiHandbookTextPage page = (GuiHandbookTextPage)shownStackListItems[index];
+
+            if (selectMidiDevice(this.capi, page.Title))
+            {
+                startMidiDeviceListen(this.capi, page.Title);
+            }
+
+            TryClose();
+        }
+
+        private void Close()
+        {
+            TryClose();
+        }
+    }
 }
