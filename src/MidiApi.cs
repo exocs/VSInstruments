@@ -22,6 +22,7 @@ namespace instruments
 
         public static void Enumerate(List<string> midiDeviceNames)
         {
+            InputDevice.UpdateInstalledDevices();//TODO: Not like this!
             foreach (InputDevice device in InputDevice.InstalledDevices)
             {
                 midiDeviceNames.Add(device.Name);
