@@ -27,6 +27,7 @@ namespace instruments
         harp,
         mic,
         drum,
+        bassguitar,
         none
     }
     public class InstrumentItem : Item
@@ -540,8 +541,6 @@ namespace instruments
                 Definitions.GetInstance().SetPlayingMode(PlayingMode.none);
                 capi.ShowChatMessage($"Listening to {deviceName} finished!");
             }
-
-
         }
 
         private void MidiDeviceSelect()
@@ -637,6 +636,15 @@ namespace instruments
         public override void OnLoaded(ICoreAPI api)
         {
             instrument = InstrumentType.acousticguitar;
+            animation = "holdbothhandslarge";
+            base.OnLoaded(api);
+        }
+    }
+    public class BassGuitarItem : InstrumentItem
+    {
+        public override void OnLoaded(ICoreAPI api)
+        {
+            instrument = InstrumentType.bassguitar;
             animation = "holdbothhandslarge";
             base.OnLoaded(api);
         }
@@ -761,6 +769,7 @@ namespace instruments
             animMap.Add(InstrumentType.harp, "holdbothhands");
             animMap.Add(InstrumentType.mic, "holdinglanternrighthand");
             animMap.Add(InstrumentType.drum, "holdbothhandslarge");
+            animMap.Add(InstrumentType.bassguitar, "holdbothhandslarge");
         }
 
         public static Definitions GetInstance()

@@ -112,6 +112,7 @@ namespace instruments
             api.RegisterItemClass("steeldrum", typeof(SteelDrumItem));
             api.RegisterItemClass("trumpet", typeof(TrumpetItem));
             api.RegisterItemClass("violin", typeof(ViolinItem));
+            api.RegisterItemClass("bassguitar", typeof(BassGuitarItem));
 
             api.RegisterBlockClass("musicblock", typeof(MusicBlock));
             api.RegisterBlockEntityClass("musicblockentity", typeof(BEMusicBlock));
