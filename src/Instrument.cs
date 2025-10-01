@@ -1,14 +1,11 @@
 ﻿using System;       // Action<>
 using System.Collections.Generic;
-using System.Diagnostics; // debug todo remove
 using System.IO;    // Open files
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
-using Vintagestory.API.Common.Entities;
 using Vintagestory.API.Config;  // Lang
 using Vintagestory.API.MathTools; // vec3D
 using Vintagestory.API.Util;
-
 
 namespace instruments
 {
@@ -177,6 +174,7 @@ namespace instruments
                     NoteStart newNote = new NoteStart();
                     newNote.pitch = currentNote.pitch;
                     newNote.positon = pos;
+                    newNote.velocity = 127;
                     newNote.instrument = instrument;
                     IClientNetworkChannel ch = capi.Network.GetChannel("noteTest");
                     ch.SendPacket(newNote);
@@ -196,7 +194,7 @@ namespace instruments
             if (isClient)
             {
                 Update(slot, byEntity);
-                
+
                 // Additionally, update the sound packet
                 PlayMode playMode = GetPlayMode(slot);
                 switch (playMode)
@@ -430,6 +428,11 @@ namespace instruments
                     ABCSendStop();
                 }
 
+                if (Definitions.GetInstance().IsPlaying(PlayingMode.midi))
+                {
+                    MidiStopListen();
+                }
+
                 // TODO: midi
 
                 Definitions.GetInstance().SetPlayingMode(PlayingMode.none);
@@ -463,45 +466,99 @@ namespace instruments
             }
         }
 
-        private void MidiStartListen(ICoreClientAPI capi, string midiDeviceName) 
+        private bool MidiValidate(ICoreClientAPI clientAPi, string midiDeviceName)
         {
-            if (MidiDevice.Activate(midiDeviceName))
-            {
-                // TODO: Make sure this event is called from the main thread!
-                MidiDevice.onNoteOn += (channel, pitch, velocity, time) =>
-                {
-                    // TODO: Resolve the duplicities and add support for more notes!
-                    if (MidiDevice.PitchToNoteFrequency(pitch, out NoteFrequency noteFrequency))
-                    {
-                        EntityPlayer playerEntity = capi.World.Player.Entity;
-                        Vec3d pos = new Vec3d(playerEntity.Pos.X, playerEntity.Pos.Y, playerEntity.Pos.Z);
-                        NoteStart newNote = new NoteStart();
-                        newNote.pitch = noteFrequency.pitch;
-                        newNote.positon = pos;
-                        newNote.instrument = instrument;
-                        IClientNetworkChannel ch = capi.Network.GetChannel("noteTest");
-                        ch.SendPacket(newNote);
-                    }
-                };
-            }
-        }
-        
-        private void MidiStopListen() 
-        {
-            MidiDevice.Deactivate();
+            return MidiApi.Exists(midiDeviceName);
         }
 
-        private void MidiDeviceSelect() 
+        private void MidiStartListen(ICoreClientAPI clientAPI, string midiDeviceName)
+        {
+            if (MidiApi.Activate(midiDeviceName))
+            {
+                // TODO: Queue these events and poll then on the main thread!
+                //       For now this is acceptable, it only reads trivial data and sends
+                //       the packet, which is processed on the main thread anyway.
+
+                MidiApi.onNoteOn += onNoteOnHandler;
+                MidiApi.onNoteOff += onNoteOffHandler;
+                MidiApi.onSustainChange += onSustainChangeHandler;
+                MidiApi.onReverbChange += onReverbChangeHandler;
+
+                // Only start the 'game' playing mode and inform the user if the actual
+                // game state representation matches expectations
+                if (!Definitions.GetInstance().IsPlaying(PlayingMode.midi))
+                {
+                    clientAPI.ShowChatMessage($"Listening to {midiDeviceName}. You may now start playing!");
+                    Definitions.GetInstance().SetPlayingMode(PlayingMode.midi);
+                }
+            }
+
+            void onNoteOnHandler(MidiApi.Channel channel, MidiApi.Pitch pitch, byte velocity, float time)
+            {
+                EntityPlayer playerEntity = capi.World.Player.Entity;
+                Vec3d pos = new Vec3d(playerEntity.Pos.X, playerEntity.Pos.Y, playerEntity.Pos.Z);
+                NoteStart noteStart = new NoteStart();
+                noteStart.ID = Definitions.GetInstance().AssignNoteID((int)pitch);
+                noteStart.pitch = Definitions.GetInstance().GetRelativeFrequency(pitch.ToFrequency());
+                noteStart.reverb = Definitions.GetInstance().GetReverb();
+                noteStart.velocity = velocity;
+                noteStart.positon = pos;
+                noteStart.instrument = instrument;
+                IClientNetworkChannel ch = capi.Network.GetChannel("noteTest");
+                ch.SendPacket(noteStart);
+            }
+            void onNoteOffHandler(MidiApi.Channel channel, MidiApi.Pitch pitch, byte velocity, float time)
+            {
+                NoteStop noteStop = new NoteStop();
+                noteStop.ID = Definitions.GetInstance().FreeNoteID((int)pitch);
+                noteStop.fadeDuration = Definitions.GetInstance().GetSustainDuration();
+                IClientNetworkChannel ch = capi.Network.GetChannel("noteTest");
+                ch.SendPacket(noteStop);
+            }
+            void onSustainChangeHandler(MidiApi.Channel channel, byte value, float time)
+            {
+                Definitions.GetInstance().SetSustain(value);
+            }
+            void onReverbChangeHandler(MidiApi.Channel channel, byte value, float time)
+            {
+                Definitions.GetInstance().SetReverb(value);
+            }
+        }
+
+        private void MidiStopListen()
+        {
+            // Regardless of the state of the 'game', in ANY case
+            // this was called, make sure that the device is deactivated
+            string deviceName = MidiApi.hasDevice ? MidiApi.deviceName : "<Unknown>";
+
+            MidiApi.Deactivate();
+
+            // And only if we confirm that the player was playing prior, let them know
+            // and update the 'game' state
+            if (Definitions.GetInstance().IsPlaying(PlayingMode.midi))
+            {
+                Definitions.GetInstance().SetPlayingMode(PlayingMode.none);
+                capi.ShowChatMessage($"Listening to {deviceName} finished!");
+            }
+
+
+        }
+
+        private void MidiDeviceSelect()
         {
             if (Definitions.GetInstance().UpdateMidiDeviceList(capi))
             {
                 MidiDeviceSelectGUI deviceGui = new MidiDeviceSelectGUI(
                     capi,
-                    (capi, midiDeviceName) => true, // in case validation is needed, uneccessary for now
+                    MidiValidate,
                     MidiStartListen,
                     Definitions.GetInstance().GetMidiDeviceList()
                     );
                 deviceGui.TryOpen();
+            }
+            else
+            {
+                capi.ShowChatMessage("Could not find compatible MIDI devices!");
             }
         }
 
@@ -649,7 +706,11 @@ namespace instruments
         private List<string> serverAbcFiles = new List<string>();
         private List<string> midiDevices = new List<string>();
         private bool messageDone = false;
-        private PlayingMode playingMode = PlayingMode.none; 
+        private PlayingMode playingMode = PlayingMode.none;
+        private int noteID = 0;
+        private byte sustainValue = 96;//about halfway, 0-63 is off
+        private byte reverbValue = 0; //0-127
+        private Dictionary<int, int> activeNoteIDs = new Dictionary<int, int>();
 
         string abcBaseDirectory = Directory.GetCurrentDirectory() + Path.DirectorySeparatorChar + "abc";
 
@@ -785,7 +846,7 @@ namespace instruments
         public bool UpdateMidiDeviceList(ICoreClientAPI capi)
         {
             midiDevices.Clear();
-            MidiDevice.Enumerate(midiDevices);
+            MidiApi.Enumerate(midiDevices);
             return midiDevices.Count > 0;
         }
         public List<string> GetMidiDeviceList()
@@ -793,11 +854,18 @@ namespace instruments
             return midiDevices;
         }
 
-
+        public float GetRelativeFrequency(float frequencyHz)
+        {
+            // The note 'A4' was represented in the mod as '1.0',
+            // so to keep this relation, we use it as the base:
+            const float referenceFrequencyHz = 440.00f;
+            return frequencyHz / referenceFrequencyHz;
+        }
 
         public void SetPlayingMode(PlayingMode playingMode)
         {
             this.playingMode = playingMode;
+            this.noteID = 0;
         }
 
         public bool IsPlaying() //IsPlayingAny()
@@ -814,6 +882,60 @@ namespace instruments
         {
             abcFiles.Clear();
             serverAbcFiles.Clear();
+        }
+
+        public int AssignNoteID(int noteIndex)
+        {
+            int newID = ++noteID;
+
+            if (!activeNoteIDs.TryAdd(noteIndex, newID))
+            {
+                // Error, didn't release?
+                activeNoteIDs[noteIndex] = newID;
+            }
+
+            return newID;
+        }
+        public int FreeNoteID(int noteIndex)
+        {
+            if (activeNoteIDs.TryGetValue(noteIndex, out noteID))
+            {
+                return noteID;
+            }
+
+            return -1;
+        }
+
+        public void SetSustain(byte value)
+        {
+            sustainValue = value;
+        }
+        public byte GetSustain()
+        {
+            return sustainValue;
+        }
+        public int GetSustainDuration() // Milliseconds
+        {
+            const int baseDuration = 150; // abrupt end is extremly weird, add some
+            const int extraDuration = 1450; // this is the "controllable" value
+
+            // Supposedly 0-63 is the pedal released, so no sustain
+            if (sustainValue < 64)
+                return baseDuration;
+
+            // The remaining range is the pedal being pressed - interpolate
+            // and add the extra duration
+            float value01 = (sustainValue - 64) / 63.0f;
+            return baseDuration + (int)MathF.Round(value01 * extraDuration);
+        }
+
+        public void SetReverb(byte value)
+        {
+            reverbValue = value;
+        }
+        public byte GetReverb()
+        {
+            return reverbValue;
         }
     }
 }

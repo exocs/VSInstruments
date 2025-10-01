@@ -388,10 +388,10 @@ namespace instruments
         private List<IFlatListItem> shownStackListItems = new List<IFlatListItem>();
 
         public MidiDeviceSelectGUI(
-            ICoreClientAPI capi, 
+            ICoreClientAPI capi,
             SelectMidiDevice selectMidiDeviceCallback,
             StartMidiDeviceListen startMidiDeviceListenCallback,
-            List<string> midiDevices) 
+            List<string> midiDevices)
             : base(capi)
         {
             SetupDialog(midiDevices);
@@ -500,6 +500,10 @@ namespace instruments
             if (selectMidiDevice(this.capi, page.Title))
             {
                 startMidiDeviceListen(this.capi, page.Title);
+            }
+            else
+            {
+                capi.ShowChatMessage($"Could not select device '{page.Title}'!");
             }
 
             TryClose();

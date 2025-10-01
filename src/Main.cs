@@ -37,6 +37,8 @@ namespace instruments
         public float pitch;
         public Vec3d positon;
         public int ID;
+        public byte velocity;
+        public byte reverb;
         public InstrumentType instrument;
     }
     [ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
@@ -44,12 +46,15 @@ namespace instruments
     {
         public float pitch;
         public Vec3d positon;
+        public byte velocity;
+        public byte reverb;
         public int ID;
     }
     [ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
     public class NoteStop
     {
         public int ID;
+        public int fadeDuration;//miliseconds
     }
 
     [ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
@@ -253,9 +258,13 @@ namespace instruments
                         noteString += "la";
                         break;
                 }
+
+                
             }
             IClientWorldAccessor clientWorldAccessor = clientApi.World;
-            Sound sound = new Sound(clientWorldAccessor, note.positon, note.pitch, soundLocations[note.instrument] + noteString, note.ID, config.playerVolume);
+            float volume = config.playerVolume * CalculateVelocityVolume(note.velocity);
+            float reverb = CalculateReverbTime(note.reverb);
+            Sound sound = new Sound(clientWorldAccessor, note.positon, note.pitch, soundLocations[note.instrument] + noteString, note.ID, volume, reverbDecayTime: reverb);
             if (sound.sound == null)
                 Debug.WriteLine("Sound creation failed!");
             else
@@ -277,8 +286,24 @@ namespace instruments
             Sound sound = soundList.Find(x => (x.ID == note.ID));
             if (sound == null)
                 return;
-            sound.StopSound();
+
+            if (note.fadeDuration <= 0)
+                sound.StopSound();
+            else
+                sound.sound.FadeOutAndStop(note.fadeDuration * 0.001f);
+
             soundList.Remove(sound);
+        }
+
+        private float CalculateVelocityVolume(int velocity)
+        {
+            // TODO: Expose?
+            return float.Lerp(0.05f, 1.0f, velocity / 128.0f);
+        }
+        private float CalculateReverbTime(int reverb)
+        {
+            // 4000ms is like a large hall, let's keep it at that for now
+            return float.Lerp(0.0f, 4.0f, reverb / 128.0f);
         }
 
         private void ParseServerPacket(ABCUpdateFromServer serverPacket)
@@ -379,6 +404,7 @@ namespace instruments
                 }
             }
         }
+
         private void CheckSoundManagersEmpty()
         {
             if (soundManagers.Count == 0)

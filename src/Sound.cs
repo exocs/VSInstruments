@@ -14,7 +14,7 @@ namespace instruments
         public int ID;
         public float endTime;
 
-        public Sound(IClientWorldAccessor client, Vec3d pos, float pitchModifier, string assetLocation, int id, float volume, bool play = true)
+        public Sound(IClientWorldAccessor client, Vec3d pos, float pitchModifier, string assetLocation, int id, float volume, float reverbDecayTime = 0, bool play = true)
         {
             SoundParams soundData = new SoundParams(new AssetLocation("instruments", assetLocation + ".ogg"));
             soundData.Volume = volume;
@@ -22,6 +22,7 @@ namespace instruments
             if (sound != null)
             {
                 UpdateSound(pos, pitchModifier);
+                sound.SetReverb(reverbDecayTime);
                 ID = id;
                 if (play)
                     sound.Start();
@@ -202,7 +203,7 @@ namespace instruments
                                     }
                                 }
                             }
-                            Sound newSound = new Sound(client, sourcePosition, pitch, assetLocation, -1, volume, play);
+                            Sound newSound = new Sound(client, sourcePosition, pitch, assetLocation, -1, volume, play: play);
                             newSound.endTime = nowTime + note.duration;
                             if (newSound.sound == null)
                                 Debug.WriteLine("Sound creation failed (abc)!");
