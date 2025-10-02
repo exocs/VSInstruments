@@ -215,6 +215,8 @@ namespace instruments
             //soundManagers.Clear(); //Already null!
             soundList.Clear();
             clientSideReady = false;
+
+            MidiApi.Deactivate();
         }
         private void MakeNote(NoteStart note)
         {
